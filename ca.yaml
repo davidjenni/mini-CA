@@ -1,0 +1,6 @@
+# config parameters for the CA node to be created:
+subscription: "WinAzure MSDN"
+resourceGroup: "test-azure-ca"
+location: "westus2"
+name: "test-ca"
+ssh_keyfile: "~/.ssh/do-sfo1-docker@digitalocean.pub"
