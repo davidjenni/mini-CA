@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eu
+set -e
 
 # from: https://stackoverflow.com/a/21189044
 # $1:   yaml file
@@ -26,20 +26,69 @@ if [ -n $1 -a -s $1 ]; then
     eval $(parse_yaml $1 "CNF_")
 fi
 
-RG=${CNF_resourceGroup:="test-CA"}
-LOC=${CNF_location:="southcentralus"}
-NAME=${CNF_name:="my-CA"}
-if [ -n $CNF_ssh_keyfile ]; then
-    SSH_KEY_PARAM="--ssh-key-value $CNF_ssh_keyfile"
+# lame param handling...
+if [ -n $2 -a $2 = --dryrun ]; then
+    AZ_VERB=validate
+    VALIDATE=1
 else
-    SSH_KEY_PARAM=--generate-ssh-keys
+    AZ_VERB=create
+    VALIDATE=0
 fi
 
-(az group create --name "$RG" --location "$LOC")
+RG=${CNF_resourceGroup:="mini-CA"}
+LOC=${CNF_location:="southcentralus"}
+NAME=${CNF_name:="mini-CA"}
+SUBSCRIPTION=$CNF_subscription
+SSH_PORT=${CNF_ssh_port:="4410"}
 
-echo Creating VM $NAME in resource group "$RG"...
-(az vm create --name "$NAME" --resource-group "$RG" \
-    $SSH_KEY_PARAM \
-    --admin-username core --image CoreOS:CoreOS:Stable:latest \
-    --size Standard_B1s --storage-sku Standard_LRS \
-    --custom-data "$(ct -platform azure -in-file cloud-config.yaml)" )
+if [ -s $CNF_ssh_keyfile ]; then
+    echo "Must specify an entry 'ssh_keyfile' in the YAML file!" && exit 1
+fi
+SSH_KEY_FILE=${CNF_ssh_keyfile/\~/$HOME}
+if [ ! -s $SSH_KEY_FILE ]; then
+    echo "The required SSH public key file $SSH_KEY_FILE does not exist!" && exit 1
+fi
+
+if [ -z "$SUBSCRIPTION" ]; then
+    echo "Must specify an Azure subscription (specified by its name or guid)!" && exit 1
+fi
+set -eu
+
+az account show 1> /dev/null
+if [ $? != 0 ]; then
+	az login
+fi
+az account set --subscription "$SUBSCRIPTION"
+
+RG_EXISTS=$(az group exists --name "$RG")
+if [ "$RG_EXISTS" = "false" ]; then
+    (az group create --name "$RG" --location "$LOC")
+fi
+
+GEN_DIR=build
+[ -d $GEN_DIR ] || mkdir $GEN_DIR 2>/dev/null
+PARAMS_FILE=${GEN_DIR}/ARM.params.gen.json
+
+echo Generating parameters file $PARAMS_FILE...
+# capture SSH public key file:
+SSH_KEY_DATA=$(cat $SSH_KEY_FILE)
+
+# generate the ARM parameters json file
+# inject YAML config CNF_* values into the cloud-config file:
+IGNITION=$( \
+    sed -e "s|##sshPort##|${CNF_ssh_port}|g" cloud-config.yaml \
+    | ct -platform azure | jq -c '.')
+echo $IGNITION > $GEN_DIR/ignition.txt
+
+jq -n -c --arg name "$NAME" --arg sshPort "$CNF_ssh_port" --arg sshKeyData "$SSH_KEY_DATA" --arg ignition "$IGNITION" \
+    '{ "vmName": { "value": $name}, "cloudConfigIgnition": { "value": $ignition }, "sshPort": { "value": $sshPort }, "sshKeyData": { "value": $sshKeyData } }' > $PARAMS_FILE
+
+if [ $VALIDATE = 1 ]; then
+    echo DRYRUN, validating only.
+else
+    echo Creating VM $NAME in resource group "$RG"...
+fi
+
+az group deployment $AZ_VERB --resource-group "$RG" --template-file "CA-node.ARM.json" --parameters @$PARAMS_FILE
+echo "Connect to VM with SSH:"
+echo "  ssh core@$NAME.$LOC.cloudapp.azure.com -p $SSH_PORT -i $(dirname $SSH_KEY_FILE)/$(basename -s .pub $SSH_KEY_FILE)"

@@ -1,0 +1,274 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "vmName": {
+            "type": "string",
+            "defaultValue": "miniCA-test"
+        },
+        "vmSize": {
+            "type": "string",
+            "defaultValue": "Standard_B1s"
+        },
+        "coreOsChannel": {
+            "type": "string",
+            "defaultValue": "Stable"
+        },
+        "coreOsVersion": {
+            "type": "string",
+            "defaultValue": "latest"
+        },
+        "sshKeyData": {
+            "type": "string",
+            "metadata": {
+                "description" : "content of SSH public key file"
+            }
+        },
+        "sshPort": {
+            "type": "string",
+            "defaultValue": "22"
+        },
+        "cloudConfigIgnition": {
+            "type": "string",
+            "defaultValue": "{\"ignition\":{\"config\":{},\"timeouts\":{},\"version\":\"2.1.0\"},\"networkd\":{},\"passwd\":{},\"storage\":{\"files\":[{\"filesystem\":\"root\",\"group\":{},\"path\":\"/etc/coreos/update.conf\",\"user\":{},\"contents\":{\"source\":\"data:,GROUP%3Dstable%0AREBOOT_STRATEGY%3D%22reboot%22%0ALOCKSMITHD_REBOOT_WINDOW_START%3D%22Mon%205%3A00%22%0ALOCKSMITHD_REBOOT_WINDOW_LENGTH%3D%222h%22\",\"verification\":{}},\"mode\":420}]},\"systemd\":{}}"
+        }
+    },
+    "variables": {
+        "userName": "core",
+        "sshKeyPath": "[concat('/home/', variables('userName'), '/.ssh/authorized_keys')]",
+        "uniquify": "[uniqueString(resourceGroup().id)]",
+        "nicName": "[concat(parameters('vmName'), '_NIC')]",
+        "pubIpAddrName": "[concat(parameters('vmName'), '_PubIP')]",
+        "vnetName": "[concat(parameters('vmName'), '_VNet')]",
+        "vnetID": "[resourceId('Microsoft.Network/virtualNetworks',variables('vnetName'))]",
+        "subnet1Name": "[concat(parameters('vmName'), '1_subNet')]",
+        "subnet1Ref": "[concat(variables('vnetID'),'/subnets/',variables('subnet1Name'))]",
+        "nsgName": "[concat(parameters('vmName'), '_NSG')]",
+        "osDiskName": "[concat(parameters('vmName'),'_OsDisk_', variables('uniquify'))]",
+        "diagStorage": "[toLower(replace(concat(parameters('vmName'), 'diag0', variables('uniquify')), '-', ''))]"
+    },
+    "resources": [
+        {
+            "comments": "https://docs.microsoft.com/en-us/azure/templates/microsoft.compute/virtualmachines",
+            "type": "Microsoft.Compute/virtualMachines",
+            "name": "[parameters('vmName')]",
+            "location": "[resourceGroup().location]",
+            "apiVersion": "2017-12-01",
+            "tags": {},
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "[parameters('vmSize')]"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "CoreOS",
+                        "offer": "CoreOS",
+                        "sku": "[parameters('coreOsChannel')]",
+                        "version": "[parameters('coreOsVersion')]"
+                    },
+                    "osDisk": {
+                        "osType": "Linux",
+                        "name": "[variables('osDiskName')]",
+                        "createOption": "FromImage",
+                        "caching": "ReadWrite",
+                        "managedDisk": {
+                            "storageAccountType": "Standard_LRS"
+                        },
+                        "diskSizeGB": 30
+                    },
+                    "dataDisks": []
+                },
+                "osProfile": {
+                    "computerName": "[parameters('vmName')]",
+                    "adminUsername": "[variables('userName')]",
+                    "linuxConfiguration": {
+                        "disablePasswordAuthentication": true,
+                        "ssh": {
+                            "publicKeys": [
+                                {
+                                    "path": "[variables('sshKeyPath')]",
+                                    "keyData": "[parameters('sshKeyData')]"
+                                }
+                            ]
+                        }
+                    },
+                    "customData": "[base64(parameters('cloudConfigIgnition'))]",
+                    "secrets": []
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]"
+                        }
+                    ]
+                },
+                "diagnosticsProfile": {
+                    "bootDiagnostics": {
+                        "enabled": true,
+                        "storageUri": "[concat('http://', variables('diagStorage'), '.blob.core.windows.net')]"
+                    }
+                }
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]",
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('diagStorage'))]"
+            ]
+        },
+        {
+            "comments": "https://docs.microsoft.com/en-us/azure/templates/microsoft.network/networkinterfaces",
+            "type": "Microsoft.Network/networkInterfaces",
+            "name": "[variables('nicName')]",
+            "location": "[resourceGroup().location]",
+            "apiVersion": "2018-01-01",
+            "tags": {},
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "[concat('ipconfig-', parameters('vmName'))]",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "publicIPAddress": {
+                                "id": "[resourceId('Microsoft.Network/publicIpAddresses', variables('pubIpAddrName'))]"
+                            },
+                            "subnet": {
+                                "comments": "concat(resourceId('Microsoft.Network/virtualNetworks', variables('vnetName')),'/subnets/', variables('subnet1Name')) resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'),'subnets', variables('subnet1Name')) variables('subnet1Ref')",
+                                "id": "[variables('subnet1Ref')]"
+                            }
+                        }
+                    }
+                ],
+                "networkSecurityGroup": {
+                    "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+                },
+                "primary": true,
+                "virtualMachine": {
+                    "id": "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
+                }
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/publicIPAddresses', variables('pubIpAddrName'))]",
+                "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]",
+                "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+            ]
+        },
+        {
+            "comments": "https://docs.microsoft.com/en-us/azure/templates/microsoft.network/publicipaddresses",
+            "type": "Microsoft.Network/publicIPAddresses",
+            "sku": {
+                "name": "Basic"
+            },
+            "name": "[variables('pubIpAddrName')]",
+            "apiVersion": "2018-01-01",
+            "location": "[resourceGroup().location]",
+            "tags": {},
+            "properties": {
+                "provisioningState": "Succeeded",
+                "publicIPAddressVersion": "IPv4",
+                "publicIPAllocationMethod": "Dynamic",
+                "idleTimeoutInMinutes": 4,
+                "dnsSettings": {
+                    "domainNameLabel": "[toLower(parameters('vmName'))]"
+                }
+            }
+        },
+        {
+            "comments": "https://docs.microsoft.com/en-us/azure/templates/microsoft.network/virtualnetworks",
+            "type": "Microsoft.Network/virtualNetworks",
+            "name": "[variables('vnetName')]",
+            "apiVersion": "2018-01-01",
+            "location": "[resourceGroup().location]",
+            "tags": {},
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "10.0.0.0/16"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "[variables('subnet1Name')]",
+                        "properties": {
+                            "addressPrefix": "10.0.0.0/24"
+                        }
+                    }
+                ],
+                "virtualNetworkPeerings": [],
+                "enableDdosProtection": false
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+            ]
+        },
+        {
+            "comments": "https://docs.microsoft.com/en-us/azure/templates/microsoft.network/networksecuritygroups",
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "name": "[variables('nsgName')]",
+            "apiVersion": "2018-01-01",
+            "location": "[resourceGroup().location]",
+            "tags": {},
+            "properties": {
+                "securityRules": [
+                    {
+                        "name": "HTTP",
+                        "properties": {
+                            "direction": "Inbound",
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "80",
+                            "sourceAddressPrefix": "Internet",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 500
+                        }
+                    },
+                    {
+                        "name": "HTTPS",
+                        "properties": {
+                            "direction": "Inbound",
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "443",
+                            "sourceAddressPrefix": "Internet",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 501
+                        }
+                    },
+                    {
+                        "name": "SSH_access",
+                        "properties": {
+                            "direction": "Inbound",
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "[parameters('sshPort')]",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 1000
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "comments": "https://docs.microsoft.com/en-us/azure/templates/microsoft.storage/storageaccounts",
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion": "2017-10-01",
+            "name": "[variables('diagStorage')]",
+            "location": "[resourceGroup().location]",
+            "kind": "Storage",
+            "sku": {
+                "name": "Standard_LRS"
+            },
+            "properties": {},
+            "tags": {},
+            "dependsOn": []
+        }
+    ],
+    "outputs": {
+        "fqdn": {
+            "value": "[reference(variables('pubIpAddrName')).dnsSettings.fqdn]",
+            "type": "string"
+        }
+    }
+}
