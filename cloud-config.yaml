@@ -19,7 +19,7 @@ systemd:
           ListenStream=
           # avoid default ssh port 22, too many script kiddies keep trying password hacks,
           # albeit in vain since config allows authN with certs-only...
-          ListenStream=4410
+          ListenStream=##sshPort##
 
 storage:
   files:
@@ -42,6 +42,5 @@ storage:
           PrintLastLog no # handled by PAM
           PrintMotd no # handled by PAM
           Subsystem sftp internal-sftp
-          UsePrivilegeSeparation sandbox
           UseDNS no
           UsePAM yes

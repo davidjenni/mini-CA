@@ -35,11 +35,34 @@ else
     SSH_KEY_PARAM=--generate-ssh-keys
 fi
 
+az account show 1> /dev/null
+if [ $? != 0 ]; then
+	az login
+fi
+
+RG_EXISTS=$(az group exists --name "$RG")
+if [ "$RG_EXISTS" == "true" ]; then
+    echo "Resource group '$RG' already exists, chose a different and not yet existing group name" && exit 1
+fi
 (az group create --name "$RG" --location "$LOC")
 
+GEN_DIR=build
+[ -d $GEN_DIR ] || mkdir $GEN_DIR 2>/dev/null
+PARAMS_FILE=${GEN_DIR}/ARM.params.gen.json
+
+echo Generating parameters file $PARAMS_FILE...
+# capture SSH public key file:
+SSH_KEY_DATA=$(cat ${CNF_ssh_keyfile/\~/$HOME})
+
+# inject YAML config files into the cloud-config file:
+sed -e "s|##sshPort##|${CNF_ssh_port}|g" \
+    cloud-config.yaml > ${GEN_DIR}/cloud-config.yaml
+
+# generate the ARM parameters json file
+IGNITION=$(ct -platform azure -in-file ${GEN_DIR}/cloud-config.yaml | jq '. | tojson')
+jq -n -c --arg name "$NAME" --arg sshPort "$CNF_ssh_port" --arg sshKeyData "$SSH_KEY_DATA" --arg ignition "$IGNITION" \
+    '{ "vmName": { "value": $name}, "cloudConfigIgnition": { "value": $ignition }, "sshPort": { "value": $sshPort }, "sshKeyData": { "value": $sshKeyData } }' > $PARAMS_FILE
+
 echo Creating VM $NAME in resource group "$RG"...
-(az vm create --name "$NAME" --resource-group "$RG" \
-    $SSH_KEY_PARAM \
-    --admin-username core --image CoreOS:CoreOS:Stable:latest \
-    --size Standard_B1s --storage-sku Standard_LRS \
-    --custom-data "$(ct -platform azure -in-file cloud-config.yaml)" )
+(az group deployment create --resource-group "$RG" --template-file "CA-node.ARM.json" --parameters @$PARAMS_FILE )
+exit $?

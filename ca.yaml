@@ -2,5 +2,6 @@
 subscription: "WinAzure MSDN"
 resourceGroup: "test-azure-ca"
 location: "westus2"
-name: "test-ca"
+name: "ca-test"
 ssh_keyfile: "~/.ssh/do-sfo1-docker@digitalocean.pub"
+ssh_port: 4460
