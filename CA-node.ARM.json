@@ -43,7 +43,9 @@
         "vnetID": "[resourceId('Microsoft.Network/virtualNetworks',variables('vnetName'))]",
         "subnet1Name": "[concat(parameters('vmName'), '1_subNet')]",
         "subnet1Ref": "[concat(variables('vnetID'),'/subnets/',variables('subnet1Name'))]",
-        "nsgName": "[concat(parameters('vmName'), '_NSG')]"
+        "nsgName": "[concat(parameters('vmName'), '_NSG')]",
+        "osDiskName": "[concat(parameters('vmName'),'_OsDisk_', variables('uniquify'))]",
+        "diagStorage": "[toLower(replace(concat(parameters('vmName'), 'diag0', variables('uniquify')), '-', ''))]"
     },
     "resources": [
         {
@@ -66,7 +68,7 @@
                     },
                     "osDisk": {
                         "osType": "Linux",
-                        "name": "[concat(parameters('vmName'),'_OsDisk_', variables('uniquify'))]",
+                        "name": "[variables('osDiskName')]",
                         "createOption": "FromImage",
                         "caching": "ReadWrite",
                         "managedDisk": {
@@ -99,10 +101,17 @@
                             "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]"
                         }
                     ]
+                },
+                "diagnosticsProfile": {
+                    "bootDiagnostics": {
+                        "enabled": true,
+                        "storageUri": "[concat('http://', variables('diagStorage'), '.blob.core.windows.net')]"
+                    }
                 }
             },
             "dependsOn": [
-                "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]"
+                "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]",
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('diagStorage'))]"
             ]
         },
         {
@@ -240,15 +249,25 @@
                     }
                 ]
             }
+        },
+        {
+            "comments": "https://docs.microsoft.com/en-us/azure/templates/microsoft.storage/storageaccounts",
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion": "2017-10-01",
+            "name": "[variables('diagStorage')]",
+            "location": "[resourceGroup().location]",
+            "kind": "Storage",
+            "sku": {
+                "name": "Standard_LRS"
+            },
+            "properties": {},
+            "tags": {},
+            "dependsOn": []
         }
     ],
     "outputs": {
         "fqdn": {
             "value": "[reference(variables('pubIpAddrName')).dnsSettings.fqdn]",
-            "type": "string"
-        },
-        "ipaddress": {
-            "value": "[reference(variables('pubIpAddrName')).ipAddress]",
             "type": "string"
         }
     }
