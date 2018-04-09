@@ -5,3 +5,6 @@ location: "westus2"
 name: "ca-test"
 ssh_keyfile: "~/.ssh/do-sfo1-docker@digitalocean.pub"
 ssh_port: 4460
+ca_domain: davidjenni.info
+ca_country: US
+ca_state: WA
