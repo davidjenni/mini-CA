@@ -10,7 +10,7 @@
             "name": "Bash-Debug (current .sh file)",
             "program": "${file}",
             "args": [
-                "ca.yaml"
+                "mini-ca.yaml"
             ]
         }
     ]
