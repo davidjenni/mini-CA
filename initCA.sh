@@ -47,8 +47,6 @@ if [ ! -d $MINICA_HOME ]; then
             -e "s|##caState##|$CA_STATE|g" \
             > $CONFIG_PATH/$CONFIG_FILE
     done
-    # cat config/ca-config.json | sed -e "s|##caDomain##|$CA_DOMAIN|g" > $CONFIG_PATH/ca-config.json
-    # cat config/root-ca.json | sed -e "s|##caDomain##|$CA_DOMAIN|g" > $CONFIG_PATH/root-ca.json
 fi
 
 [ -d $ROOT_CA_PATH ] || mkdir $ROOT_CA_PATH 2>/dev/null
@@ -71,5 +69,3 @@ chmod ugo-rwx,u+r $CERTS_PATH/root-ca.pem
 rm $CERTS_PATH/root-ca.csr
 
 tree $MINICA_HOME
-
-
